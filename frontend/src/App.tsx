@@ -1,30 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchClips, fetchFrame, fetchFramesBatch, fetchMeta } from './api'
+import { fetchClips, fetchMeta } from './api'
 import { ClipPanel } from './components/ClipPanel'
-import { PitchCanvas } from './components/PitchCanvas'
+import { PitchCanvas, type PitchHandle } from './components/PitchCanvas'
 import { PlaybackControls } from './components/PlaybackControls'
-import { Scrubber } from './components/Scrubber'
-import { interpolateFrames } from './lib/interpolate'
-import type { Clip, MatchMeta, TrackingFrame } from './types'
+import { Scrubber, type ScrubberHandle } from './components/Scrubber'
+import { usePlayback } from './hooks/usePlayback'
+import type { Clip, MatchMeta } from './types'
 
 export default function App() {
   const [meta, setMeta] = useState<MatchMeta | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [currentFrame, setCurrentFrame] = useState(0)
-  const [displayFrame, setDisplayFrame] = useState<TrackingFrame | null>(null)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [speed, setSpeed] = useState(1)
-  const [showNames, setShowNames] = useState(false)
-  const [showTrail, setShowTrail] = useState(true)
   const [clipStart, setClipStart] = useState<number | null>(null)
   const [clipEnd, setClipEnd] = useState<number | null>(null)
   const [clips, setClips] = useState<Clip[]>([])
-  const [ballTrail, setBallTrail] = useState<Array<{ x: number; y: number }>>([])
 
-  const frameCache = useRef<Map<number, TrackingFrame>>(new Map())
-  const playTimeRef = useRef(0)
-  const lastTickRef = useRef(0)
-  const rafRef = useRef(0)
+  const canvasRef = useRef<PitchHandle>(null)
+  const scrubberRef = useRef<ScrubberHandle>(null)
+  const {
+    isPlaying,
+    speed,
+    showNames,
+    showTrail,
+    currentFrame,
+    seek,
+    step,
+    pause,
+    togglePlay,
+    setSpeed,
+    toggleNames,
+    toggleTrail,
+  } = usePlayback(meta, canvasRef, scrubberRef)
 
   const loadClips = useCallback(async () => {
     try {
@@ -40,142 +45,59 @@ export default function App() {
       .then((m) => {
         setMeta(m)
         loadClips()
-        const params = new URLSearchParams(window.location.search)
-        const clipId = params.get('clip')
-        if (clipId) {
-          fetchClips().then((all) => {
-            const clip = all.find((c) => c.id === clipId)
-            if (clip) {
-              setCurrentFrame(clip.start_frame)
-              setClipStart(clip.start_frame)
-              setClipEnd(clip.end_frame)
-            }
-          })
-        }
       })
       .catch((e) => setError(e.message))
   }, [loadClips])
 
-  const getFrame = useCallback(async (frameNum: number): Promise<TrackingFrame | null> => {
-    const cached = frameCache.current.get(frameNum)
-    if (cached) return cached
-
-    try {
-      const frame = await fetchFrame(frameNum)
-      frameCache.current.set(frameNum, frame)
-      return frame
-    } catch {
-      return null
-    }
-  }, [])
-
-  const preloadFrames = useCallback(async (center: number) => {
-    if (!meta) return
-    const start = Math.max(0, center - 30)
-    const end = Math.min(meta.frame_count - 1, center + 30)
-    try {
-      const frames = await fetchFramesBatch(start, end)
-      for (const f of frames) {
-        frameCache.current.set(f.frame, f)
-      }
-    } catch {
-      /* preload is best-effort */
-    }
-  }, [meta])
-
-  const updateDisplay = useCallback(async (frameFloat: number) => {
-    if (!meta) return
-    const frameA = Math.floor(frameFloat)
-    const frameB = Math.min(frameA + 1, meta.frame_count - 1)
-    const t = frameFloat - frameA
-
-    const [fa, fb] = await Promise.all([getFrame(frameA), getFrame(frameB)])
-    if (!fa) return
-
-    const interpolated = t > 0 && fb ? interpolateFrames(fa, fb, t) : fa
-    setDisplayFrame(interpolated)
-    setCurrentFrame(frameA)
-
-    if (showTrail && interpolated.ball_data.x !== null && interpolated.ball_data.y !== null) {
-      setBallTrail((prev) => {
-        const next = [...prev, { x: interpolated.ball_data.x!, y: interpolated.ball_data.y! }]
-        return next.slice(-12)
-      })
-    }
-  }, [meta, getFrame, showTrail])
-
   useEffect(() => {
     if (!meta) return
-    updateDisplay(currentFrame)
-    preloadFrames(currentFrame)
-  }, [currentFrame, meta, updateDisplay, preloadFrames])
+    const clipId = new URLSearchParams(window.location.search).get('clip')
+    if (!clipId) return
+    fetchClips().then((all) => {
+      const clip = all.find((c) => c.id === clipId)
+      if (!clip) return
+      seek(clip.start_frame)
+      setClipStart(clip.start_frame)
+      setClipEnd(clip.end_frame)
+    })
+  }, [meta, seek])
 
-  // Playback loop with requestAnimationFrame
-  useEffect(() => {
-    if (!isPlaying || !meta) return
-
-    playTimeRef.current = currentFrame
-    lastTickRef.current = performance.now()
-
-    const tick = (now: number) => {
-      const dt = (now - lastTickRef.current) / 1000
-      lastTickRef.current = now
-      playTimeRef.current += dt * speed * meta.fps
-
-      if (playTimeRef.current >= meta.frame_count - 1) {
-        playTimeRef.current = meta.frame_count - 1
-        setIsPlaying(false)
-      }
-
-      updateDisplay(playTimeRef.current)
-      if (isPlaying) {
-        rafRef.current = requestAnimationFrame(tick)
-      }
-    }
-
-    rafRef.current = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [isPlaying, speed, meta, updateDisplay, currentFrame])
-
-  const handleSeek = (frame: number) => {
-    if (!meta) return
-    const clamped = Math.max(0, Math.min(frame, meta.frame_count - 1))
-    setCurrentFrame(clamped)
-    playTimeRef.current = clamped
-    setIsPlaying(false)
-    setBallTrail([])
-  }
-
-  const handleStep = (delta: number) => {
-    handleSeek(currentFrame + delta)
-  }
-
-  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.code === 'Space' && e.target instanceof HTMLButtonElement) return
       switch (e.code) {
         case 'Space':
           e.preventDefault()
-          setIsPlaying((p) => !p)
+          togglePlay()
           break
         case 'ArrowLeft':
-          handleStep(e.shiftKey ? -1 : -10)
+          e.preventDefault()
+          step(e.shiftKey ? -1 : -10)
           break
         case 'ArrowRight':
-          handleStep(e.shiftKey ? 1 : 10)
+          e.preventDefault()
+          step(e.shiftKey ? 1 : 10)
           break
         case 'KeyI':
-          setClipStart(currentFrame)
+          setClipStart(currentFrame())
           break
         case 'KeyO':
-          setClipEnd(currentFrame)
+          setClipEnd(currentFrame())
           break
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  })
+  }, [togglePlay, step, currentFrame])
+
+  const onSetClipStart = useCallback(() => {
+    setClipStart(currentFrame())
+  }, [currentFrame])
+
+  const onSetClipEnd = useCallback(() => {
+    setClipEnd(currentFrame())
+  }, [currentFrame])
 
   if (error) {
     return (
@@ -212,20 +134,16 @@ export default function App() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-3">
-          <PitchCanvas
-            frame={displayFrame}
-            meta={meta}
-            ballTrail={showTrail ? ballTrail : []}
-            showNames={showNames}
-          />
+          <PitchCanvas ref={canvasRef} meta={meta} />
 
           <Scrubber
+            ref={scrubberRef}
             meta={meta}
-            currentFrame={currentFrame}
             clipStart={clipStart}
             clipEnd={clipEnd}
             clips={clips}
-            onSeek={handleSeek}
+            onSeek={seek}
+            onScrubStart={pause}
           />
 
           <PlaybackControls
@@ -233,11 +151,11 @@ export default function App() {
             speed={speed}
             showNames={showNames}
             showTrail={showTrail}
-            onPlayPause={() => setIsPlaying((p) => !p)}
+            onPlayPause={togglePlay}
             onSpeedChange={setSpeed}
-            onStep={handleStep}
-            onToggleNames={() => setShowNames((n) => !n)}
-            onToggleTrail={() => setShowTrail((t) => !t)}
+            onStep={step}
+            onToggleNames={toggleNames}
+            onToggleTrail={toggleTrail}
           />
 
           <p className="text-xs text-slate-500">
@@ -250,10 +168,10 @@ export default function App() {
           clipStart={clipStart}
           clipEnd={clipEnd}
           clips={clips}
-          onSetClipStart={() => setClipStart(currentFrame)}
-          onSetClipEnd={() => setClipEnd(currentFrame)}
+          onSetClipStart={onSetClipStart}
+          onSetClipEnd={onSetClipEnd}
           onClipsChange={loadClips}
-          onSeek={handleSeek}
+          onSeek={seek}
         />
       </div>
     </div>

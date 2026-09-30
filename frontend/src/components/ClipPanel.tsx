@@ -1,5 +1,5 @@
 import { Download, Link2, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { clipExportUrl, createClip, deleteClip } from '../api'
 import type { Clip, MatchMeta } from '../types'
 import { Button } from './ui/button'
@@ -23,7 +23,7 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export function ClipPanel({
+export const ClipPanel = memo(function ClipPanel({
   meta,
   clipStart,
   clipEnd,
@@ -197,4 +197,4 @@ export function ClipPanel({
       </div>
     </div>
   )
-}
+})

@@ -1,4 +1,5 @@
 import { Pause, Play, SkipBack, SkipForward } from 'lucide-react'
+import { memo } from 'react'
 import { Button } from './ui/button'
 
 interface PlaybackControlsProps {
@@ -15,7 +16,7 @@ interface PlaybackControlsProps {
 
 const SPEEDS = [0.5, 1, 1.5, 2]
 
-export function PlaybackControls({
+export const PlaybackControls = memo(function PlaybackControls({
   isPlaying,
   speed,
   showNames,
@@ -64,4 +65,4 @@ export function PlaybackControls({
       </div>
     </div>
   )
-}
+})

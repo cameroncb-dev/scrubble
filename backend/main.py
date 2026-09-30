@@ -51,11 +51,18 @@ def _load_meta() -> dict:
         return json.load(f)
 
 
+_reader_instance: FrameReader | None = None
+
+
 def _reader() -> FrameReader:
-    try:
-        return FrameReader(_match_dir())
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    """Reuse one reader so each request does not re-parse the frame index."""
+    global _reader_instance
+    if _reader_instance is None:
+        try:
+            _reader_instance = FrameReader(_match_dir())
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _reader_instance
 
 
 @app.on_event("startup")
@@ -75,6 +82,22 @@ def get_meta() -> dict:
     return _load_meta()
 
 
+@app.get("/api/frames/batch")
+def get_frames_batch(
+    start: int = Query(..., ge=0),
+    end: int = Query(..., ge=0),
+) -> list[dict]:
+    # This route must be registered before /frames/{frame_number}. Starlette
+    # does not fall through when "batch" fails integer parsing, so the static
+    # path would otherwise 422 and prefetch would never fill.
+    reader = _reader()
+    if end < start:
+        raise HTTPException(status_code=400, detail="end must be >= start")
+    if end - start > 200:
+        raise HTTPException(status_code=400, detail="Batch size limited to 200 frames")
+    return reader.get_frames(start, end + 1)
+
+
 @app.get("/api/frames/{frame_number}")
 def get_frame(frame_number: int) -> dict:
     reader = _reader()
@@ -82,19 +105,6 @@ def get_frame(frame_number: int) -> dict:
         return reader.get_frame(frame_number)
     except IndexError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@app.get("/api/frames/batch")
-def get_frames_batch(
-    start: int = Query(..., ge=0),
-    end: int = Query(..., ge=0),
-) -> list[dict]:
-    reader = _reader()
-    if end < start:
-        raise HTTPException(status_code=400, detail="end must be >= start")
-    if end - start > 200:
-        raise HTTPException(status_code=400, detail="Batch size limited to 200 frames")
-    return reader.get_frames(start, end + 1)
 
 
 @app.get("/api/clips")

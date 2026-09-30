@@ -1,133 +1,196 @@
-import { useEffect, useRef } from 'react'
+import { forwardRef, memo, useEffect, useImperativeHandle, useRef } from 'react'
+import { blendBall, forEachPlayer, type BallPoint } from '../lib/interpolate'
 import type { MatchMeta, TrackingFrame } from '../types'
 
-interface PitchCanvasProps {
-  frame: TrackingFrame | null
-  meta: MatchMeta
-  ballTrail: Array<{ x: number; y: number }>
+export type PitchSample = {
+  a: TrackingFrame | null
+  b: TrackingFrame | null
+  t: number
+  trail: ReadonlyArray<BallPoint>
   showNames: boolean
+  heldBall: BallPoint | null
 }
 
-export function PitchCanvas({ frame, meta, ballTrail, showNames }: PitchCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+export type PitchHandle = {
+  draw: (sample: PitchSample) => void
+}
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || !frame) return
+const WIDTH = 1050
+const HEIGHT = 680
+const MARGIN = 20
 
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+type PitchCanvasProps = {
+  meta: MatchMeta
+}
 
-    const w = canvas.width
-    const h = canvas.height
-    const pitchW = meta.pitch_length
-    const pitchH = meta.pitch_width
-    const margin = 20
+function drawPitch(
+  ctx: CanvasRenderingContext2D,
+  meta: MatchMeta,
+  w: number,
+  h: number,
+): void {
+  const pitchW = meta.pitch_length
+  const pitchH = meta.pitch_width
 
-    const toCanvas = (x: number, y: number) => ({
-      px: margin + ((x + pitchW / 2) / pitchW) * (w - 2 * margin),
-      py: margin + ((pitchH / 2 - y) / pitchH) * (h - 2 * margin),
-    })
+  const toX = (x: number) => MARGIN + ((x + pitchW / 2) / pitchW) * (w - 2 * MARGIN)
+  const toY = (y: number) => MARGIN + ((pitchH / 2 - y) / pitchH) * (h - 2 * MARGIN)
 
-    // Pitch background
-    ctx.fillStyle = '#1a5c2e'
-    ctx.fillRect(0, 0, w, h)
+  ctx.fillStyle = '#1a5c2e'
+  ctx.fillRect(0, 0, w, h)
 
-    // Pitch outline
-    const tl = toCanvas(-pitchW / 2, pitchH / 2)
-    const br = toCanvas(pitchW / 2, -pitchH / 2)
-    ctx.strokeStyle = '#ffffff'
-    ctx.lineWidth = 2
-    ctx.strokeRect(tl.px, tl.py, br.px - tl.px, br.py - tl.py)
+  const tlX = toX(-pitchW / 2)
+  const tlY = toY(pitchH / 2)
+  const brX = toX(pitchW / 2)
+  const brY = toY(-pitchH / 2)
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 2
+  ctx.strokeRect(tlX, tlY, brX - tlX, brY - tlY)
 
-    // Center line
-    const midTop = toCanvas(0, pitchH / 2)
-    const midBot = toCanvas(0, -pitchH / 2)
-    ctx.beginPath()
-    ctx.moveTo(midTop.px, midTop.py)
-    ctx.lineTo(midBot.px, midBot.py)
-    ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(toX(0), toY(pitchH / 2))
+  ctx.lineTo(toX(0), toY(-pitchH / 2))
+  ctx.stroke()
 
-    // Center circle
-    const center = toCanvas(0, 0)
-    ctx.beginPath()
-    ctx.arc(center.px, center.py, 50, 0, Math.PI * 2)
-    ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(toX(0), toY(0), 50, 0, Math.PI * 2)
+  ctx.stroke()
 
-    // Penalty boxes
-    const boxW = pitchW * 0.16
-    const boxH = pitchH * 0.6
-    for (const side of [-1, 1]) {
-      const bx = side * pitchW / 2
-      const c1 = toCanvas(bx - side * boxW, boxH / 2)
-      const c2 = toCanvas(bx, -boxH / 2)
-      ctx.strokeRect(c1.px, c1.py, c2.px - c1.px, c2.py - c1.py)
+  const boxW = pitchW * 0.16
+  const boxH = pitchH * 0.6
+  for (const side of [-1, 1]) {
+    const bx = (side * pitchW) / 2
+    const c1x = toX(bx - side * boxW)
+    const c1y = toY(boxH / 2)
+    const c2x = toX(bx)
+    const c2y = toY(-boxH / 2)
+    ctx.strokeRect(c1x, c1y, c2x - c1x, c2y - c1y)
+  }
+}
+
+export const PitchCanvas = memo(
+  forwardRef<PitchHandle, PitchCanvasProps>(function PitchCanvas({ meta }, ref) {
+    const canvasRef = useRef<HTMLCanvasElement>(null)
+    const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
+    const pitchRef = useRef<HTMLCanvasElement | null>(null)
+    const pitchKeyRef = useRef('')
+    const nameWidths = useRef(new Map<number, number>())
+    const metaRef = useRef(meta)
+    useEffect(() => {
+      metaRef.current = meta
+    }, [meta])
+
+    const context = () => {
+      if (ctxRef.current) return ctxRef.current
+      const canvas = canvasRef.current
+      if (!canvas) return null
+      ctxRef.current =
+        canvas.getContext('2d', { alpha: false, desynchronized: true }) ?? canvas.getContext('2d')
+      return ctxRef.current
     }
 
-    // Ball trail
-    for (let i = 0; i < ballTrail.length; i++) {
-      const { px, py } = toCanvas(ballTrail[i].x, ballTrail[i].y)
-      const alpha = 0.2 + 0.6 * (i / ballTrail.length)
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`
-      ctx.beginPath()
-      ctx.arc(px, py, 4, 0, Math.PI * 2)
-      ctx.fill()
+    const staticPitch = () => {
+      const current = metaRef.current
+      const key = `${current.pitch_length}x${current.pitch_width}`
+      if (pitchRef.current && pitchKeyRef.current === key) return pitchRef.current
+      const offscreen = document.createElement('canvas')
+      offscreen.width = WIDTH
+      offscreen.height = HEIGHT
+      const off = offscreen.getContext('2d')
+      if (!off) return null
+      drawPitch(off, current, WIDTH, HEIGHT)
+      pitchRef.current = offscreen
+      pitchKeyRef.current = key
+      nameWidths.current.clear()
+      return offscreen
     }
 
-    // Players
-    for (const p of frame.player_data) {
-      const info = meta.players[String(p.player_id)]
-      const team = info?.team ?? 'home'
-      const color = team === 'home' ? meta.home_color : meta.away_color
-      const { px, py } = toCanvas(p.x, p.y)
+    useImperativeHandle(ref, () => ({
+      draw(sample: PitchSample) {
+        const ctx = context()
+        const pitch = staticPitch()
+        if (!ctx || !pitch) return
 
-      ctx.fillStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`
-      ctx.strokeStyle = '#ffffff'
-      ctx.lineWidth = 1.5
-      ctx.beginPath()
-      ctx.arc(px, py, 12, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.stroke()
+        ctx.drawImage(pitch, 0, 0)
+        if (!sample.a || !sample.b) return
 
-      if (info?.number) {
-        ctx.fillStyle = '#ffffff'
+        const current = metaRef.current
+        const pitchW = current.pitch_length
+        const pitchH = current.pitch_width
+        const scaleX = (WIDTH - 2 * MARGIN) / pitchW
+        const scaleY = (HEIGHT - 2 * MARGIN) / pitchH
+        const toX = (x: number) => MARGIN + (x + pitchW / 2) * scaleX
+        const toY = (y: number) => MARGIN + (pitchH / 2 - y) * scaleY
+
+        const trail = sample.trail
+        for (let i = 0; i < trail.length; i++) {
+          const alpha = 0.2 + 0.6 * ((i + 1) / trail.length)
+          ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`
+          ctx.beginPath()
+          ctx.arc(toX(trail[i].x), toY(trail[i].y), 4, 0, Math.PI * 2)
+          ctx.fill()
+        }
+
+        const home = current.home_color
+        const away = current.away_color
+        const homeStyle = `rgb(${home[0]}, ${home[1]}, ${home[2]})`
+        const awayStyle = `rgb(${away[0]}, ${away[1]}, ${away[2]})`
+        ctx.lineWidth = 1.5
         ctx.font = 'bold 11px system-ui'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.fillText(String(info.number), px, py)
-      }
 
-      if (showNames && info?.name) {
-        ctx.fillStyle = 'rgba(0,0,0,0.7)'
-        ctx.font = '10px system-ui'
-        const textW = ctx.measureText(info.name).width + 8
-        ctx.fillRect(px - textW / 2, py + 14, textW, 14)
-        ctx.fillStyle = '#ffffff'
-        ctx.fillText(info.name, px, py + 21)
-      }
-    }
+        forEachPlayer(sample.a, sample.b, sample.t, (id, x, y) => {
+          const info = current.players[String(id)]
+          const px = toX(x)
+          const py = toY(y)
+          ctx.fillStyle = info?.team === 'away' ? awayStyle : homeStyle
+          ctx.strokeStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(px, py, 12, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
 
-    // Ball
-    const ball = frame.ball_data
-    if (ball.x !== null && ball.y !== null) {
-      const { px, py } = toCanvas(ball.x, ball.y)
-      ctx.fillStyle = '#ffffff'
-      ctx.strokeStyle = '#000000'
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.arc(px, py, 6, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.stroke()
-    }
-  }, [frame, meta, ballTrail, showNames])
+          if (info?.number) {
+            ctx.fillStyle = '#ffffff'
+            ctx.fillText(String(info.number), px, py)
+          }
 
-  return (
-    <canvas
-      ref={canvasRef}
-      width={1050}
-      height={680}
-      className="w-full rounded-lg border border-panel-border bg-pitch"
-      aria-label="Soccer pitch tracking visualization"
-    />
-  )
-}
+          if (sample.showNames && info?.name) {
+            ctx.font = '10px system-ui'
+            let textW = nameWidths.current.get(id)
+            if (textW == null) {
+              textW = ctx.measureText(info.name).width + 8
+              nameWidths.current.set(id, textW)
+            }
+            ctx.fillStyle = 'rgba(0,0,0,0.7)'
+            ctx.fillRect(px - textW / 2, py + 14, textW, 14)
+            ctx.fillStyle = '#ffffff'
+            ctx.fillText(info.name, px, py + 21)
+            ctx.font = 'bold 11px system-ui'
+          }
+        })
+
+        const ball = blendBall(sample.a.ball_data, sample.b.ball_data, sample.t, sample.heldBall)
+        if (ball) {
+          ctx.fillStyle = '#ffffff'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.arc(toX(ball.x), toY(ball.y), 6, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+        }
+      },
+    }))
+
+    return (
+      <canvas
+        ref={canvasRef}
+        width={WIDTH}
+        height={HEIGHT}
+        className="w-full rounded-lg border border-panel-border bg-pitch"
+        aria-label="Soccer pitch tracking visualization"
+      />
+    )
+  }),
+)
