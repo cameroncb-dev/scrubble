@@ -39,11 +39,11 @@ def _draw_pitch(draw: ImageDraw.ImageDraw, pitch_w: float, pitch_h: float) -> No
     box_h = pitch_h * 0.6
     for side in (-1, 1):
         bx = side * pitch_w / 2
-        corners = [
-            _world_to_canvas(bx - side * box_w, box_h / 2, pitch_w, pitch_h),
-            _world_to_canvas(bx, -box_h / 2, pitch_w, pitch_h),
-        ]
-        draw.rectangle(corners, outline=LINE_WHITE, width=2)
+        x_near = bx - side * box_w
+        x_far = bx
+        c1 = _world_to_canvas(min(x_near, x_far), box_h / 2, pitch_w, pitch_h)
+        c2 = _world_to_canvas(max(x_near, x_far), -box_h / 2, pitch_w, pitch_h)
+        draw.rectangle([c1[0], c1[1], c2[0], c2[1]], outline=LINE_WHITE, width=2)
 
 
 def render_frame(
