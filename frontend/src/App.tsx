@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchClips, fetchMeta } from './api'
 import { ClipPanel } from './components/ClipPanel'
+import { MatchStatus, type PossessionHandle } from './components/MatchStatus'
 import { PitchCanvas, type PitchHandle } from './components/PitchCanvas'
 import { PlaybackControls } from './components/PlaybackControls'
 import { Scrubber, type ScrubberHandle } from './components/Scrubber'
@@ -16,6 +17,7 @@ export default function App() {
 
   const canvasRef = useRef<PitchHandle>(null)
   const scrubberRef = useRef<ScrubberHandle>(null)
+  const possessionRef = useRef<PossessionHandle>(null)
   const {
     isPlaying,
     speed,
@@ -29,7 +31,7 @@ export default function App() {
     setSpeed,
     toggleNames,
     toggleTrail,
-  } = usePlayback(meta, canvasRef, scrubberRef)
+  } = usePlayback(meta, canvasRef, scrubberRef, possessionRef)
 
   const loadClips = useCallback(async () => {
     try {
@@ -131,6 +133,8 @@ export default function App() {
           {meta.stadium}
         </p>
       </header>
+
+      <MatchStatus ref={possessionRef} meta={meta} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-3">

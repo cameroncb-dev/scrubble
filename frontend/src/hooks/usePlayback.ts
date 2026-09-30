@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import type { PossessionHandle } from '../components/MatchStatus'
 import type { PitchHandle, PitchSample } from '../components/PitchCanvas'
 import type { ScrubberHandle } from '../components/Scrubber'
 import { FrameBuffer } from '../lib/frameBuffer'
@@ -17,6 +18,7 @@ export function usePlayback(
   meta: MatchMeta | null,
   canvasRef: RefObject<PitchHandle | null>,
   scrubberRef: RefObject<ScrubberHandle | null>,
+  possessionRef: RefObject<PossessionHandle | null>,
 ) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [speed, setSpeedState] = useState(1)
@@ -181,6 +183,13 @@ export function usePlayback(
         showingEmpty = true
       }
 
+      const shownFrame: TrackingFrame | null = resolved
+        ? resolved.t >= 0.5
+          ? resolved.b
+          : resolved.a
+        : null
+      possessionRef.current?.setFrame(shownFrame)
+
       const key = Math.floor(playhead)
       if (forcePublish || key !== published) {
         published = key
@@ -267,7 +276,7 @@ export function usePlayback(
         pendingSeek.current = frame
       }
     }
-  }, [meta, canvasRef, scrubberRef])
+  }, [meta, canvasRef, scrubberRef, possessionRef])
 
   return {
     isPlaying,

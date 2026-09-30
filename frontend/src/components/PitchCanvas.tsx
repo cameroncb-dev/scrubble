@@ -1,5 +1,8 @@
 import { forwardRef, memo, useEffect, useImperativeHandle, useRef } from 'react'
 import { blendBall, forEachPlayer, type BallPoint } from '../lib/interpolate'
+import { playerById } from '../lib/players'
+import { describePossession } from '../lib/possession'
+import { teamKits } from '../lib/teamColors'
 import type { MatchMeta, TrackingFrame } from '../types'
 
 export type PitchSample = {
@@ -130,28 +133,38 @@ export const PitchCanvas = memo(
           ctx.fill()
         }
 
-        const home = current.home_color
-        const away = current.away_color
-        const homeStyle = `rgb(${home[0]}, ${home[1]}, ${home[2]})`
-        const awayStyle = `rgb(${away[0]}, ${away[1]}, ${away[2]})`
-        ctx.lineWidth = 1.5
+        const kits = teamKits(current.home_color, current.away_color)
+        const possession = describePossession(
+          current,
+          sample.t >= 0.5 ? sample.b : sample.a,
+        )
         ctx.font = 'bold 11px system-ui'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
 
         forEachPlayer(sample.a, sample.b, sample.t, (id, x, y) => {
-          const info = current.players[String(id)]
+          const info = playerById(current, id)
+          const away = info?.team === 'away'
           const px = toX(x)
           const py = toY(y)
-          ctx.fillStyle = info?.team === 'away' ? awayStyle : homeStyle
-          ctx.strokeStyle = '#ffffff'
+          ctx.fillStyle = away ? kits.awayCss : kits.homeCss
+          ctx.strokeStyle = away ? kits.awayInk : kits.homeInk
+          ctx.lineWidth = 1.5
           ctx.beginPath()
           ctx.arc(px, py, 12, 0, Math.PI * 2)
           ctx.fill()
           ctx.stroke()
 
+          if (possession.playerId === id) {
+            ctx.strokeStyle = '#67e8f9'
+            ctx.lineWidth = 2.5
+            ctx.beginPath()
+            ctx.arc(px, py, 16, 0, Math.PI * 2)
+            ctx.stroke()
+          }
+
           if (info?.number) {
-            ctx.fillStyle = '#ffffff'
+            ctx.fillStyle = away ? kits.awayInk : kits.homeInk
             ctx.fillText(String(info.number), px, py)
           }
 
