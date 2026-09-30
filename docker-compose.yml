@@ -1,0 +1,23 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - MATCH_ID=1886347
+    command: uvicorn main:app --host 0.0.0.0 --port 8765
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "4321:4321"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://backend:8765
