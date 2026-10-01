@@ -2,6 +2,8 @@
 
 ![Scrubble](docs/scrubble.png)
 
+Live demo: https://scrubble-igzb.onrender.com
+
 Top 3, US Soccer × ColorStack Tech League Hackathon.
 
 A web app for scrubbing through SkillCorner open tracking data like a YouTube video, and clipping 0–10 second sequences to share with teammates.
