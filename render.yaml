@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: scrubble
+    runtime: docker
+    repo: https://github.com/cameroncb-dev/scrubble
+    branch: main
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: MATCH_ID
+        value: "1886347"

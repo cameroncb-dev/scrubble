@@ -1,8 +1,10 @@
-# Tracking Scrubber
+# Scrubble
+
+![Scrubble](docs/scrubble.png)
+
+Top 3, US Soccer × ColorStack Tech League Hackathon.
 
 A web app for scrubbing through SkillCorner open tracking data like a YouTube video, and clipping 0–10 second sequences to share with teammates.
-
-Built for the **US Soccer x ColorStack Hackathon**.
 
 ## Demo Match
 
@@ -16,7 +18,7 @@ Default match: **Auckland FC 2 – 0 Newcastle** (ID `1886347`, A-League, Nov 20
 | Frontend | Vite, React, TypeScript, Tailwind CSS, shadcn/ui |
 | Storage | SQLite (clips), JSONL + byte-offset index (frames) |
 | Export | Pillow, imageio + ffmpeg (GIF/MP4) |
-| Deploy | Docker Compose |
+| Deploy | Docker on Render |
 
 ## Quick Start
 
@@ -42,10 +44,19 @@ cd frontend && npm install && npm run dev
 
 Open http://localhost:4321
 
-### 3. Docker Compose
+### 3. Docker
+
+The root `Dockerfile` builds the Vite app, runs `prepare_match.py 1886347`, and serves the site and the API from FastAPI on one port. `render.yaml` is the Render blueprint for that image.
 
 ```bash
-python backend/prepare_match.py 1886347   # prepare data first
+docker build -t scrubble .
+docker run -p 10000:10000 scrubble
+```
+
+`docker-compose.yml` still runs the Vite dev server and the API as two processes, for local development. Prepare the match first:
+
+```bash
+python backend/prepare_match.py 1886347
 docker compose up --build
 ```
 

@@ -126,7 +126,7 @@ export default function App() {
   return (
     <div className="min-h-screen p-4 md:p-6 max-w-7xl mx-auto space-y-4">
       <header className="space-y-1">
-        <h1 className="text-2xl font-bold text-white">Tracking Scrubber</h1>
+        <h1 className="text-2xl font-bold text-white">Scrubble</h1>
         <p className="text-slate-400">
           {meta.home_team} {meta.home_score} – {meta.away_score} {meta.away_team}
           <span className="mx-2">·</span>

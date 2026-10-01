@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download and prepare a SkillCorner match for the tracking scrubber app.
+"""Download and prepare a SkillCorner match for Scrubble.
 
 Usage: python prepare_match.py <match_id>
 Example: python prepare_match.py 1886347

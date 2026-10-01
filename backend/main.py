@@ -1,4 +1,4 @@
-"""FastAPI backend for the SkillCorner tracking scrubber."""
+"""FastAPI backend for Scrubble."""
 
 import json
 import os
@@ -17,7 +17,7 @@ DATA_DIR = Path(__file__).parent.parent / "data" / "matches"
 EXPORT_DIR = Path(__file__).parent / "exports"
 MATCH_ID = os.environ.get("MATCH_ID", "1886347")
 
-app = FastAPI(title="SkillCorner Tracking Scrubber", version="1.0.0")
+app = FastAPI(title="Scrubble", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -184,3 +184,27 @@ def export_clip_file(clip_id: str, fmt: str) -> FileResponse:
 
     media_type = "image/gif" if fmt == "gif" else "video/mp4"
     return FileResponse(output_path, media_type=media_type, filename=f"{clip['title']}.{fmt}")
+
+
+FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def frontend(full_path: str) -> FileResponse:
+    """Serve the built Vite app from the same origin as the API."""
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    dist = FRONTEND_DIST.resolve()
+    if not dist.is_dir():
+        raise HTTPException(status_code=404, detail="Frontend is not built")
+
+    if full_path:
+        candidate = (dist / full_path).resolve()
+        if candidate.is_file() and dist in candidate.parents:
+            return FileResponse(candidate)
+
+    index = dist / "index.html"
+    if not index.is_file():
+        raise HTTPException(status_code=404, detail="Frontend is not built")
+    return FileResponse(index)
